@@ -38,7 +38,7 @@ private:
     std::string selectedKeyboardLayout = "";
     uint8_t selectedScreenBrightness = 140;
     std::string defaultVaultPath = "/vaults";
-    bool bleKeyboardEnabled = true;
+    bool bleKeyboardEnabled = false;
     std::string bleDeviceName = "vault_kb";
 
     // Last Vault
