@@ -9,6 +9,7 @@
 #include "Services/SdService.h"
 #include "Services/NvsService.h"
 #include "Services/UsbService.h"
+#include "Services/BleService.h"
 #include "Services/LedService.h"
 #include "Transformers/JsonTransformer.h"
 #include "Transformers/ModelTransformer.h"
@@ -46,6 +47,7 @@ public:
     SdService& getSdService();
     NvsService& getNvsService();
     UsbService& getUsbService();
+    BleService& getBleService();
     LedService& getLedService();
 
     // Transformers
@@ -84,6 +86,7 @@ private:
     SdService sdService;
     NvsService nvsService;
     UsbService usbService;
+    BleService bleService;
     LedService ledService;
 
     // Transformers
