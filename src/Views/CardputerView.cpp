@@ -32,14 +32,14 @@ void CardputerView::welcome(uint8_t defaultBrightness) {
     Display->setCursor(125, 80);
     Display->setTextSize(1);
     Display->printf("1.0 Version");
-    Display->setCursor(126, 92);
-    Display->printf("Made By Geo");
+    Display->setCursor(99, 92);
+    Display->printf("Made By Geo, Hrootzel");
     Display->setTextColor(PRIMARY_COLOR);
     Display->setCursor(107, 108);
     Display->setTextSize(1.4);
     Display->printf("Press any key");
     Display->drawRect(12, 53, ((Display->height() / 2) + 2), ((Display->height() / 2) + 2), PRIMARY_COLOR);
-    Display->qrcode("github.com/geo-tp/Password-Manager", 13, 54, Display->height() / 2, 4);
+    Display->qrcode("github.com/hrootzel/Password-Manager", 13, 54, Display->height() / 2, 4);
 
     uint8_t currentBrightness = defaultBrightness;
     while (getBrightness() >= 50) {
@@ -422,8 +422,10 @@ void CardputerView::value(std::string label, std::string value) {
     Display->setTextColor(TEXT_COLOR);
     Display->printf(value.c_str());
 
-    // Display "M" button
+    bool isPasswordField = (label == "Pass");
     Display->setTextSize(1.6);
+
+    // Display "M" button
     Display->fillRoundRect(38, 95, 20, 15, DEFAULT_ROUND_RECT, PRIMARY_COLOR);
     Display->setTextColor(TEXT_COLOR);
     Display->setCursor(45, 102);
@@ -431,7 +433,20 @@ void CardputerView::value(std::string label, std::string value) {
 
     Display->setCursor(68, 103);
     Display->setTextColor(PRIMARY_COLOR);
-    Display->printf("to modify field");
+    if (isPasswordField) {
+        Display->printf("modify ");
+        // Display "V" button for view
+        Display->fillRoundRect(130, 95, 20, 15, DEFAULT_ROUND_RECT, PRIMARY_COLOR);
+        Display->setTextColor(TEXT_COLOR);
+        Display->setCursor(137, 102);
+        Display->printf("v");
+
+        Display->setCursor(160, 103);
+        Display->setTextColor(PRIMARY_COLOR);
+        Display->printf("view");
+    } else {
+        Display->printf("to modify field");
+    }
 
     // Display "OK" button
     Display->fillRoundRect(33, 117, 30, 15, DEFAULT_ROUND_RECT, PRIMARY_COLOR);
@@ -441,7 +456,7 @@ void CardputerView::value(std::string label, std::string value) {
 
     Display->setCursor(72, 125);
     Display->setTextColor(PRIMARY_COLOR);
-    Display->printf("to send via USB");
+    Display->printf("to send keys");
 
     Display->setTextColor(TEXT_COLOR);
 }

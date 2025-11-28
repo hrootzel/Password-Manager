@@ -44,7 +44,7 @@ public:
             {ActionEnum::DeleteEntry, "Del Password"},
             {ActionEnum::SelectField, "Select Field"},
             {ActionEnum::UpdateField, "Update Field"},
-            {ActionEnum::SendToUsb, "Send to USB"},
+            {ActionEnum::SendToUsb, "Send keystrokes"},
             {ActionEnum::ShowHelp, "Show Help"},
             {ActionEnum::UpdateSettings, "Settings"}
         };

@@ -124,12 +124,15 @@ extern const uint8_t KeyboardLayout_da_DK[];
 extern const uint8_t KeyboardLayout_hu_HU[];
 
 //  Low level key report: up to 6 keys and shift, ctrl etc at once
+#ifndef BAD_USB_KEYREPORT_DEFINED
+#define BAD_USB_KEYREPORT_DEFINED
 typedef struct
 {
   uint8_t modifiers;
   uint8_t reserved;
   uint8_t keys[6];
 } KeyReport;
+#endif
 
 class USBHIDKeyboard: public USBHIDDevice, public Print
 {

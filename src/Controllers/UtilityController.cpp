@@ -8,22 +8,24 @@ UtilityController::UtilityController(IView& display,
                                      StringPromptSelector& stringPromptSelector,
                                      ConfirmationSelector& confirmationSelector,
                                      UsbService& usbService,
+                                     BleService& bleService,
                                      LedService& ledService,
                                      NvsService& nvsService,
                                      SdService& sdService,
                                      TimeTransformer& timeTransformer)
     : display(display),
       input(input),
+      usbService(usbService),
+      bleService(bleService),
+      ledService(ledService),
+      nvsService(nvsService),
+      sdService(sdService),
+      timeTransformer(timeTransformer),
       horizontalSelector(horizontalSelector),
       verticalSelector(verticalSelector),
       fieldEditorSelector(fieldEditorSelector),
       stringPromptSelector(stringPromptSelector),
-      confirmationSelector(confirmationSelector),
-      usbService(usbService),
-      ledService(ledService),
-      nvsService(nvsService),
-      sdService(sdService),
-      timeTransformer(timeTransformer) {}
+      confirmationSelector(confirmationSelector) {}
 
 void UtilityController::handleWelcome() {
     auto brightness = globalState.getSelectedScreenBrightness();
@@ -32,12 +34,27 @@ void UtilityController::handleWelcome() {
     display.setBrightness(brightness);
 }
 
-bool UtilityController::handleUsbTyping(std::string sendString) {
+bool UtilityController::handleSendKeystrokes(const std::string& sendString) {
     ledService.showLed();
-    display.subMessage("Send to USB", 0);
-    usbService.sendString(sendString);
+    bool sent = false;
+
+    if (globalState.getBleKeyboardEnabled()) {
+        bleService.setLayout(KeyboardLayoutMapper::toLayout(globalState.getSelectedKeyboardLayout()));
+        bleService.setDeviceName(globalState.getBleDeviceName());
+        bleService.begin();
+        display.subMessage("Sent keystrokes (BLE)", 0);
+        bleService.sendString(sendString);
+        sent = bleService.isReady();
+    }
+
+    if (!sent) {
+        display.subMessage("Sent keystrokes (USB)", 0);
+        usbService.sendString(sendString);
+        sent = usbService.isReady();
+    }
+
     ledService.clearLed();
-    return true;
+    return sent;
 }
 
 bool UtilityController::handleKeyboardInitialization() {
@@ -63,6 +80,13 @@ bool UtilityController::handleKeyboardInitialization() {
     }
     usbService.setLayout(finalLayout);
     usbService.begin();
+    if (globalState.getBleKeyboardEnabled()) {
+        bleService.setLayout(finalLayout);
+        bleService.setDeviceName(globalState.getBleDeviceName());
+        bleService.begin();
+    } else {
+        bleService.end();
+    }
     return true;
 }
 
@@ -98,13 +122,26 @@ void UtilityController::handleLoadNvs() {
             globalState.setInactivityLockTimeout(lockTimeout);
         }
     }
+
+    // BLE keyboard enable
+    std::string savedBleEnabled = nvsService.getString(globalState.getNvsBleEnabled());
+    if (!savedBleEnabled.empty()) {
+        globalState.setBleKeyboardEnabled(savedBleEnabled == "1");
+    }
+
+    // BLE device name
+    std::string savedBleDeviceName = nvsService.getString(globalState.getNvsBleDeviceName());
+    if (!savedBleDeviceName.empty()) {
+        globalState.setBleDeviceName(savedBleDeviceName);
+    }
+    bleService.setDeviceName(globalState.getBleDeviceName());
 }
 
 bool UtilityController::handleGeneralSettings() {
     std::vector<std::string> timeLabels = timeTransformer.getAllTimeLabels();
     std::vector<uint32_t> timeValues = timeTransformer.getAllTimeValues();
     std::vector<std::string> brightnessValues = {"20", "60", "100", "140", "160", "200", "240"};
-    std::vector<std::string> settingLabels = {" Keyboard ", "Brightness", "Screen off", "Vault lock"};
+    std::vector<std::string> settingLabels = {" Keyboard ", "Brightness", "Screen off", "Vault lock", " BLE ", "BLE name", "Clear BLE"};
     
     auto layouts = KeyboardLayoutMapper::getAllLayoutNames();
     auto selectedLayout = globalState.getSelectedKeyboardLayout().empty() ? layouts[2] : globalState.getSelectedKeyboardLayout();
@@ -114,7 +151,10 @@ bool UtilityController::handleGeneralSettings() {
         selectedLayout,
         std::to_string(globalState.getSelectedScreenBrightness()),
         selectedScreenOffTime, 
-        selectedLockCloseTime + " " // hack to prevent same values
+        selectedLockCloseTime + " ", // hack to prevent same values
+        globalState.getBleKeyboardEnabled() ? "On" : "Off",
+        globalState.getBleDeviceName(),
+        "Reset"
     };
 
     while (true) {
@@ -151,6 +191,35 @@ bool UtilityController::handleGeneralSettings() {
             globalState.setInactivityLockTimeout(timeValues[selectedIndex]);
             nvsService.saveString(globalState.getNvsInactivityLockTimeout(), timeLabels[selectedIndex]);
             settings[verticalIndex] = timeLabels[selectedIndex] + " ";
+        } else if (selectedSetting == " BLE ") {
+            std::vector<std::string> options = {"On", "Off"};
+            selectedIndex = horizontalSelector.select("BLE Keyboard", options, "Enable BLE keyboard", "Press OK to select", {}, false);
+            bool enableBle = options[selectedIndex] == "On";
+            globalState.setBleKeyboardEnabled(enableBle);
+            nvsService.saveString(globalState.getNvsBleEnabled(), enableBle ? "1" : "0");
+            settings[verticalIndex] = options[selectedIndex];
+            const uint8_t* layoutPtr = KeyboardLayoutMapper::toLayout(globalState.getSelectedKeyboardLayout());
+            bleService.setLayout(layoutPtr);
+            bleService.setDeviceName(globalState.getBleDeviceName());
+            if (enableBle) {
+                bleService.begin();
+            } else {
+                bleService.end();
+            }
+        } else if (selectedSetting == "BLE name") {
+            auto newName = stringPromptSelector.select("BLE Name", "Device name", globalState.getBleDeviceName(), false, true, false, 0, false);
+            if (!newName.empty() && newName != globalState.getBleDeviceName()) {
+                globalState.setBleDeviceName(newName);
+                nvsService.saveString(globalState.getNvsBleDeviceName(), newName);
+                bleService.setDeviceName(newName);
+                settings[verticalIndex] = newName;
+            }
+        } else if (selectedSetting == "Clear BLE") {
+            auto confirm = confirmationSelector.select("Clear BLE Bonds", "Remove paired devices?");
+            if (confirm) {
+                bleService.clearBonds();
+                settings[verticalIndex] = "Reset";
+            }
         }
     }
 }

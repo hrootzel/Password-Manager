@@ -9,6 +9,7 @@ DependencyProvider::DependencyProvider(IView& view, IInput& input)
       sdService(),
       nvsService(),
       usbService(),
+      bleService(),
       ledService(),
       inactivityManager(view),
       verticalSelector(view, input, inactivityManager),
@@ -28,7 +29,7 @@ DependencyProvider::DependencyProvider(IView& view, IInput& input)
                       confirmationSelector, stringPromptSelector, entryService, cryptoService, 
                       usbService, ledService, nvsService, modelTransformer),
       utilityController(view, input, horizontalSelector, verticalSelector,  fieldEditorSelector, 
-                        stringPromptSelector, confirmationSelector, usbService, ledService, nvsService,
+                        stringPromptSelector, confirmationSelector, usbService, bleService, ledService, nvsService,
                         sdService, timeTransformer)
       {}
 
@@ -51,6 +52,7 @@ CategoryService& DependencyProvider::getCategoryService() { return categoryServi
 SdService& DependencyProvider::getSdService() { return sdService; }
 NvsService& DependencyProvider::getNvsService() { return nvsService; }
 UsbService& DependencyProvider::getUsbService() { return usbService; }
+BleService& DependencyProvider::getBleService() { return bleService; }
 LedService& DependencyProvider::getLedService() { return ledService; }
 
 // Accessors for transformers

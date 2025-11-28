@@ -8,7 +8,10 @@ ActionEnum FieldActionSelector::select(const std::string& label, const std::stri
     inactivityManager.reset();
 
     display.topBar(label, true, false);
-    display.value(label, value);
+    bool isPasswordField = (label == "Pass");
+    bool reveal = false;
+    auto masked = isPasswordField ? std::string(value.size(), '*') : value;
+    display.value(label, masked);
 
     while (true) {        
         inactivityManager.update();
@@ -31,6 +34,12 @@ ActionEnum FieldActionSelector::select(const std::string& label, const std::stri
                 return ActionEnum::SendToUsb;
             case 'm':
                 return ActionEnum::UpdateField;
+            case 'v':
+                if (isPasswordField) {
+                    reveal = !reveal;
+                    display.value(label, reveal ? value : masked);
+                }
+                break;
         }
     }
 }
