@@ -2,6 +2,7 @@
 #define UTILITY_CONTROLLER_H
 
 #include <Services/UsbService.h>
+#include <Services/BleService.h>
 #include <Services/LedService.h>
 #include <Services/NvsService.h>
 #include <Services/SdService.h>
@@ -28,13 +29,14 @@ public:
                     StringPromptSelector& stringPromptSelector,
                     ConfirmationSelector& confirmationSelector,
                     UsbService& usbService,
+                    BleService& bleService,
                     LedService& ledService,
                     NvsService& nvsService,
                     SdService& sdService,
                     TimeTransformer& timeTransformer);
 
 
-    bool handleUsbTyping(std::string sendString);
+    bool handleSendKeystrokes(const std::string& sendString);
     bool handleKeyboardInitialization();
     bool handleGeneralSettings();
     void handleLoadNvs();
@@ -45,6 +47,7 @@ private:
     IView& display;
     IInput& input;
     UsbService& usbService;
+    BleService& bleService;
     LedService& ledService;
     NvsService& nvsService;
     SdService& sdService;

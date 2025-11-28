@@ -114,7 +114,7 @@ void ActionDispatcher::executeAction(ActionEnum action) {
             break;
         
         case ActionEnum::SendToUsb:
-            provider.getUtilityController().handleUsbTyping(selectedField.getValue());
+            provider.getUtilityController().handleSendKeystrokes(selectedField.getValue());
             break;
 
         case ActionEnum::UpdateSettings:

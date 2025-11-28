@@ -7,7 +7,7 @@
 #include "../Views/MockView.h"
 #include "../Inputs/MockInput.h"
 
-void test_field_action_selector_send_to_usb() {
+void test_field_action_selector_send_keystrokes() {
     MockView mockView;
     MockInput mockInput;
     InactivityManager inactivityManager(mockView);

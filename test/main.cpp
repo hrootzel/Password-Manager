@@ -99,7 +99,7 @@ void setup() {
     RUN_TEST(test_field_editor_selector_cancel);
 
     // FieldActionSelector
-    RUN_TEST(test_field_action_selector_send_to_usb);
+    RUN_TEST(test_field_action_selector_send_keystrokes);
     RUN_TEST(test_field_action_selector_update_field);
     RUN_TEST(test_field_action_selector_cancel);
 

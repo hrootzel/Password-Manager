@@ -441,7 +441,7 @@ void CardputerView::value(std::string label, std::string value) {
 
     Display->setCursor(72, 125);
     Display->setTextColor(PRIMARY_COLOR);
-    Display->printf("to send via USB");
+    Display->printf("to send keys");
 
     Display->setTextColor(TEXT_COLOR);
 }

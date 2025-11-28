@@ -1,5 +1,9 @@
 #include "BleService.h"
 
+#if defined(USE_NIMBLE)
+#include <NimBLEDevice.h>
+#endif
+
 BleService::BleService()
     : keyboard(), layout(KeyboardLayout_en_US), initialized(false), deviceName("Password Vault BLE") {}
 
@@ -63,6 +67,12 @@ void BleService::sendString(const std::string& text) {
     for (const char& c : text) {
         keyboard.write(static_cast<uint8_t>(c));
     }
+}
+
+void BleService::clearBonds() {
+#if defined(USE_NIMBLE)
+    NimBLEDevice::deleteAllBonds();
+#endif
 }
 
 void BleService::sendChunkedString(const std::string& data, size_t chunkSize, unsigned long delayBetweenChunks) {

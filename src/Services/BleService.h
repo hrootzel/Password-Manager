@@ -16,6 +16,7 @@ public:
     bool isConnected() const;
     void setLayout(const uint8_t* newLayout);
     void setDeviceName(const std::string& name);
+    void clearBonds();
 
 private:
     BleKeyboard keyboard;
