@@ -33,7 +33,7 @@ void CardputerView::welcome(uint8_t defaultBrightness) {
     Display->setTextSize(1);
     Display->printf("1.0 Version");
     Display->setCursor(107, 92);
-    Display->printf("Made By Geo - Mod by Hrootzel");
+    Display->printf("Made By Geo, Hrootzel");
     Display->setTextColor(PRIMARY_COLOR);
     Display->setCursor(107, 108);
     Display->setTextSize(1.4);
