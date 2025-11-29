@@ -151,6 +151,39 @@ bool SdService::writeBinaryFile(const std::string& filePath, const std::vector<u
     return false;
 }
 
+bool SdService::atomicWriteBinaryFileWithBackup(const std::string& filePath, const std::vector<uint8_t>& data) {
+    if (!sdCardMounted) {
+        return false;
+    }
+
+    std::string tmpPath = filePath + ".tmp";
+    std::string bakPath = filePath + ".bak";
+
+    // Write to temp
+    File tmp = SD.open(tmpPath.c_str(), FILE_WRITE);
+    if (!tmp) {
+        return false;
+    }
+    tmp.write(data.data(), data.size());
+    tmp.close();
+
+    // Rotate backup: remove old .bak, rename current to .bak if exists
+    if (SD.exists(bakPath.c_str())) {
+        SD.remove(bakPath.c_str());
+    }
+    if (SD.exists(filePath.c_str())) {
+        SD.rename(filePath.c_str(), bakPath.c_str());
+    }
+
+    // Rename temp to final
+    bool renamed = SD.rename(tmpPath.c_str(), filePath.c_str());
+    if (!renamed) {
+        // Cleanup temp if failed
+        SD.remove(tmpPath.c_str());
+    }
+    return renamed;
+}
+
 bool SdService::appendToFile(const std::string& filePath, const std::string& data) {
     if (!sdCardMounted) {
         return false;

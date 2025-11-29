@@ -129,7 +129,7 @@ bool VaultController::handleVaultCreation() {
     // Save to SD card
     sdService.begin();
     sdService.ensureDirectory(globalState.getDefaultVaultPath());
-    auto confirmation = sdService.writeBinaryFile(vaultPath, vault.getData());
+    auto confirmation = sdService.atomicWriteBinaryFileWithBackup(vaultPath, vault.getData());
     sdService.close();
     if (!confirmation) {
         return false;
@@ -202,7 +202,7 @@ bool VaultController::handleVaultSave() {
 
     // Save
     sdService.begin();
-    auto confirmation = sdService.writeBinaryFile(loadedVaultPath, vault.getData());
+    auto confirmation = sdService.atomicWriteBinaryFileWithBackup(loadedVaultPath, vault.getData());
     sdService.close();
 
     if (!confirmation) {

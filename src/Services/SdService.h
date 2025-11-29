@@ -29,6 +29,7 @@ public:
 
     bool writeFile(const std::string& filePath, const std::string& data);
     bool writeBinaryFile(const std::string& filePath, const std::vector<uint8_t>& data);
+    bool atomicWriteBinaryFileWithBackup(const std::string& filePath, const std::vector<uint8_t>& data);
     bool appendToFile(const std::string& filePath, const std::string& data);
     bool deleteFile(const std::string& filePath);
     bool validateVaultFile(const std::string& filePath);
