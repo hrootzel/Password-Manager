@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <algorithm>
 
 class GlobalState {
 private:
@@ -108,6 +109,14 @@ public:
     void setNonceSize(size_t size) { nonceSize = size; }
     void setTagSize(size_t size) { tagSize = size; }
     void setVaultMagic(const std::string& magic) { vaultMagic = magic; }
+
+    // Clear sensitive runtime data
+    void clearSensitive() {
+        if (!loadedVaultPassword.empty()) {
+            std::fill(loadedVaultPassword.begin(), loadedVaultPassword.end(), '\0');
+            loadedVaultPassword.clear();
+        }
+    }
 
     // Accesseurs pour la configuration NVS
     const std::string& getNvsNamespace() const { return nvsNamespace; }

@@ -1,4 +1,14 @@
 #include "VaultController.h"
+#include <algorithm>
+
+namespace {
+void zeroString(std::string& s) {
+    if (!s.empty()) {
+        std::fill(s.begin(), s.end(), '\0');
+        s.clear();
+    }
+}
+} // namespace
 
 VaultController::VaultController(IView& display, 
                                  IInput& input, 
@@ -26,6 +36,10 @@ VaultController::VaultController(IView& display,
       cryptoService(cryptoService),
       jsonTransformer(jsonTransformer),
       modelTransformer(modelTransformer) {}
+
+VaultController::~VaultController() {
+    globalState.clearSensitive();
+}
 
 ActionEnum VaultController::actionNoVault() {
     std::vector<ActionEnum> availableActions = {ActionEnum::OpenVault, ActionEnum::CreateVault, ActionEnum::UpdateSettings};
@@ -126,6 +140,15 @@ bool VaultController::handleVaultCreation() {
     // Update state
     globalState.setLoadedVaultPassword(pass1);
     globalState.setLoadedVaultPath(vaultPath);
+
+    // Zero sensitive temporaries
+    zeroString(pass2);
+    zeroString(pass1);
+    zeroString(jsonEmpty);
+    std::fill(payload.salt.begin(), payload.salt.end(), 0);
+    std::fill(payload.nonce.begin(), payload.nonce.end(), 0);
+    std::fill(payload.tag.begin(), payload.tag.end(), 0);
+    std::fill(payload.ciphertext.begin(), payload.ciphertext.end(), 0);
     return true;
 }
 
@@ -153,6 +176,8 @@ bool VaultController::handleVaultSave() {
         display.subMessage("Invalid vault data", 2000);
         return false;
     }
+    std::fill(vaultData.begin(), vaultData.end(), 0);
+    vaultData.clear();
 
     // Get up to date data
     auto entries = entryService.getAllEntries();
@@ -169,6 +194,11 @@ bool VaultController::handleVaultSave() {
     vault.setNonce(payload.nonce);
     vault.setTag(payload.tag);
     vault.setEncryptedData(payload.ciphertext);
+    zeroString(jsonData);
+    std::fill(payload.salt.begin(), payload.salt.end(), 0);
+    std::fill(payload.nonce.begin(), payload.nonce.end(), 0);
+    std::fill(payload.tag.begin(), payload.tag.end(), 0);
+    std::fill(payload.ciphertext.begin(), payload.ciphertext.end(), 0);
 
     // Save
     sdService.begin();
@@ -272,6 +302,8 @@ bool VaultController::loadDataFromEncryptedFile(std::string path) {
         display.subMessage("Invalid vault data", 2000);
         return false;
     }
+    std::fill(vaultBinary.begin(), vaultBinary.end(), 0);
+    vaultBinary.clear();
     auto password = stringPromptSelector.select("Open encrypted vault", "Enter master password", "", false, true, false);
     display.subMessage("Loading...", 0);
     auto salt = vaultFile.getSalt();
@@ -297,5 +329,12 @@ bool VaultController::loadDataFromEncryptedFile(std::string path) {
     auto parentDir = sdService.getParentDirectory(path);
     nvsService.saveString(globalState.getNvsLastUsedVaultPath(), parentDir);
 
+    // Zero sensitive temporaries
+    zeroString(password);
+    zeroString(decryptedData);
+    std::fill(salt.begin(), salt.end(), 0);
+    std::fill(nonce.begin(), nonce.end(), 0);
+    std::fill(tag.begin(), tag.end(), 0);
+    std::fill(encryptedData.begin(), encryptedData.end(), 0);
     return true;
 }

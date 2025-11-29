@@ -33,6 +33,10 @@ public:
     VaultFile(const std::string& filePath, const std::vector<uint8_t>& rawData)
         : path(filePath), data(rawData) {}
 
+    ~VaultFile() {
+        secureClear();
+    }
+
     // Accesseurs
     const std::string& getPath() const { return path; }
 
@@ -123,6 +127,13 @@ public:
         }
         data.erase(data.begin() + off, data.end());
         data.insert(data.end(), encryptedData.begin(), encryptedData.end());
+    }
+
+    void secureClear() {
+        if (!data.empty()) {
+            std::fill(data.begin(), data.end(), 0);
+            data.clear();
+        }
     }
 
 };

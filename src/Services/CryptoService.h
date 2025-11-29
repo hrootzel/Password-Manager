@@ -11,6 +11,7 @@
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/pkcs5.h>
 #include <mbedtls/md.h>
+#include <mbedtls/platform_util.h>
 #include <States/GlobalState.h>
 
 struct VaultAeadBlob {
@@ -36,6 +37,9 @@ public:
     std::vector<uint8_t> generateNonce(size_t nonceSize);
     std::vector<uint8_t> generateHardwareRandom(size_t size);
     std::string generateRandomString(size_t length);
+
+private:
+    void zeroize(std::vector<uint8_t>& buffer) const;
 };
 
 #endif // CRYPTO_SERVICE_H

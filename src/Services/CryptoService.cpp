@@ -109,9 +109,11 @@ VaultAeadBlob CryptoService::encryptVault(const std::string& data, const std::st
     mbedtls_gcm_free(&gcm);
 
     if (ret != 0) {
+        zeroize(key);
         throw std::runtime_error("AES-GCM encryption failed");
     }
 
+    zeroize(key);
     return VaultAeadBlob{std::move(salt), std::move(nonce), std::move(tag), std::move(ciphertext)};
 }
 
@@ -125,6 +127,7 @@ std::string CryptoService::decryptVault(const VaultAeadBlob& blob, const std::st
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key.data(), KEY_SIZE * 8);
     if (ret != 0) {
         mbedtls_gcm_free(&gcm);
+        zeroize(key);
         return "";
     }
 
@@ -144,8 +147,19 @@ std::string CryptoService::decryptVault(const VaultAeadBlob& blob, const std::st
     mbedtls_gcm_free(&gcm);
 
     if (ret != 0) {
+        zeroize(key);
+        zeroize(plaintext);
         return "";
     }
 
-    return std::string(plaintext.begin(), plaintext.end());
+    std::string result(plaintext.begin(), plaintext.end());
+    zeroize(key);
+    zeroize(plaintext);
+    return result;
+}
+
+void CryptoService::zeroize(std::vector<uint8_t>& buffer) const {
+    if (!buffer.empty()) {
+        mbedtls_platform_zeroize(buffer.data(), buffer.size());
+    }
 }

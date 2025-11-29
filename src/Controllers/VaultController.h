@@ -33,6 +33,7 @@ public:
                     CryptoService& cryptoService,
                     JsonTransformer& jsonTransformer,
                     ModelTransformer& modelTransformer);
+    ~VaultController();
 
     ActionEnum actionNoVault();
     ActionEnum actionVaultSelected();
