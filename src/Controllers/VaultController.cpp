@@ -101,16 +101,15 @@ bool VaultController::handleVaultCreation() {
 
     // Encrypt empty json struct
     display.subMessage("Creating vault...", 0);
-    auto salt = cryptoService.generateSalt(globalState.getSaltSize());
     auto jsonEmpty = jsonTransformer.emptyJsonStructure();
-    auto checksum = cryptoService.generateChecksum(jsonEmpty, globalState.getChecksumSize());
-    auto jsonEncrypted = cryptoService.encryptWithPassphrase(jsonEmpty, pass1, salt);
+    auto payload = cryptoService.encryptVault(jsonEmpty, pass1);
 
     // Create VaultFile to handle data
     VaultFile vault = VaultFile(vaultPath, {});
-    vault.setSalt(salt);
-    vault.setChecksum(checksum);
-    vault.setEncryptedData(jsonEncrypted);
+    vault.setSalt(payload.salt);
+    vault.setNonce(payload.nonce);
+    vault.setTag(payload.tag);
+    vault.setEncryptedData(payload.ciphertext);
     entryService.setContainerName(vaultName);
 
     // Save to SD card
@@ -150,10 +149,7 @@ bool VaultController::handleVaultSave() {
 
     // Create VaultFile to handle data
     VaultFile vault(loadedVaultPath, vaultData);
-
-    // Get Salt from the data of the file
-    auto salt = vault.getSalt();
-    if (salt.empty()) {
+    if (!vault.hasValidMagic()) {
         display.subMessage("Invalid vault data", 2000);
         return false;
     }
@@ -165,15 +161,14 @@ bool VaultController::handleVaultSave() {
     // tranform to JSON
     auto jsonData = jsonTransformer.mergeEntriesAndCategoriesToJson(entries, categories);
 
-    // Calculate data checksum
-    auto checksum = cryptoService.generateChecksum(jsonData, globalState.getChecksumSize());
-
     // Encrypt data
-    auto encryptedData = cryptoService.encryptWithPassphrase(jsonData, loadedVaultPassword, salt);
+    auto payload = cryptoService.encryptVault(jsonData, loadedVaultPassword);
 
     // Update VaultFile
-    vault.setChecksum(checksum);
-    vault.setEncryptedData(encryptedData);
+    vault.setSalt(payload.salt);
+    vault.setNonce(payload.nonce);
+    vault.setTag(payload.tag);
+    vault.setEncryptedData(payload.ciphertext);
 
     // Save
     sdService.begin();
@@ -273,21 +268,21 @@ bool VaultController::loadSdVault() {
 bool VaultController::loadDataFromEncryptedFile(std::string path) {
     auto vaultBinary = sdService.readBinaryFile(path);
     VaultFile vaultFile = VaultFile(path, vaultBinary);
+    if (!vaultFile.hasValidMagic()) {
+        display.subMessage("Invalid vault data", 2000);
+        return false;
+    }
     auto password = stringPromptSelector.select("Open encrypted vault", "Enter master password", "", false, true, false);
     display.subMessage("Loading...", 0);
     auto salt = vaultFile.getSalt();
-    auto savedChecksum = vaultFile.getChecksum();
+    auto nonce = vaultFile.getNonce();
+    auto tag = vaultFile.getTag();
     auto encryptedData = vaultFile.getEncryptedData();
-    
-    // Bad password
-    auto decryptedData = cryptoService.decryptWithPassphrase(encryptedData, password, salt);
-    if (decryptedData.empty()) {
-        return false;
-    }
 
-    // Bad password or salt
-    auto dataChecksum = cryptoService.generateChecksum(decryptedData, globalState.getChecksumSize());
-    if (savedChecksum != dataChecksum) {
+    // Bad password
+    VaultAeadBlob blob{salt, nonce, tag, encryptedData};
+    auto decryptedData = cryptoService.decryptVault(blob, password);
+    if (decryptedData.empty()) {
         return false;
     }
 

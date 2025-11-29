@@ -38,3 +38,6 @@ Python helper scripts live in `scripts/` (requires `pycryptodome`, see `requirem
 
 - `scripts/encrypt_vault.py`: encrypt a plaintext JSON file to `.vault`. Prompts for master password (with confirmation) or accept `-p/--password`; usage: `python scripts/encrypt_vault.py input.json output.vault`.
 - `scripts/decrypt_vault.py`: decrypt a `.vault` to JSON and verify checksum; optionally save with `-o/--output` or print to stdout. Accepts `-p/--password` or prompts.
+
+## Changes in this fork
+- Vault encryption upgraded to AES-256-GCM with PBKDF2-HMAC-SHA256 (10k iterations), 16-byte salt, 12-byte nonce, 16-byte tag, and a `VLT2` header to prevent ECB-style block pattern leaks and add built-in integrity; old `.vault` files must be re-encrypted.

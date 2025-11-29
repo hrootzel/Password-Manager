@@ -20,9 +20,11 @@ private:
     size_t maxInputCharPasswordCount = 128;
     size_t maxSavedPasswords = 100;
 
-    // Encryption size
+    // Encryption parameters
     size_t saltSize = 16;
-    size_t checksumSize = 32;
+    size_t nonceSize = 12;
+    size_t tagSize = 16;
+    std::string vaultMagic = "VLT2";
 
     // Configuration NVS key names
     std::string nvsNamespace = "vault_manager";
@@ -95,13 +97,17 @@ public:
     void setMaxInputCharPasswordCount(size_t limit) { maxInputCharPasswordCount = limit; }
     void setMaxSavedPasswordCount(size_t limit) { maxSavedPasswords = limit; }
 
-    // Accesseurs pour les tailles de sel et de checksum
+    // Accesseurs pour les tailles et l'entête du coffre
     size_t getSaltSize() const { return saltSize; }
-    size_t getChecksumSize() const { return checksumSize; }
+    size_t getNonceSize() const { return nonceSize; }
+    size_t getTagSize() const { return tagSize; }
+    const std::string& getVaultMagic() const { return vaultMagic; }
 
-    // Mutateurs pour les tailles de sel et de checksum
+    // Mutateurs pour les tailles et l'entête du coffre
     void setSaltSize(size_t size) { saltSize = size; }
-    void setChecksumSize(size_t size) { checksumSize = size; }
+    void setNonceSize(size_t size) { nonceSize = size; }
+    void setTagSize(size_t size) { tagSize = size; }
+    void setVaultMagic(const std::string& magic) { vaultMagic = magic; }
 
     // Accesseurs pour la configuration NVS
     const std::string& getNvsNamespace() const { return nvsNamespace; }
