@@ -13,6 +13,11 @@ enum class ActionEnum {
     CloseVault,
     LoadSdVault,
     LoadNvsVault,
+    BackupVault,
+    RestoreVault,
+    LoadFlashVault,
+    CopyFlashToSd,
+    DeleteFlashVault,
 
     // Entry-related actions
     SelectEntry,
@@ -39,6 +44,11 @@ public:
             {ActionEnum::CloseVault, "Close Vault"},
             {ActionEnum::LoadSdVault, "SD Vault"},
             {ActionEnum::LoadNvsVault, "NVS Vault"},
+            {ActionEnum::BackupVault, "Backup Vault"},
+            {ActionEnum::RestoreVault, "Restore Vault"},
+            {ActionEnum::LoadFlashVault, "Flash Vault"},
+            {ActionEnum::CopyFlashToSd, "Copy to SD"},
+            {ActionEnum::DeleteFlashVault, "Delete Flash Vault"},
             {ActionEnum::SelectEntry, "My Passwords"},
             {ActionEnum::CreateEntry, "New Password"},
             {ActionEnum::DeleteEntry, "Del Password"},

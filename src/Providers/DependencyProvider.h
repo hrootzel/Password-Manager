@@ -7,6 +7,7 @@
 #include "Services/EntryService.h"
 #include "Services/CategoryService.h"
 #include "Services/SdService.h"
+#include "Services/FlashBackupService.h"
 #include "Services/NvsService.h"
 #include "Services/UsbService.h"
 #include "Services/BleService.h"
@@ -45,6 +46,7 @@ public:
     EntryService& getEntryService();
     CategoryService& getCategoryService();
     SdService& getSdService();
+    FlashBackupService& getFlashBackupService();
     NvsService& getNvsService();
     UsbService& getUsbService();
     BleService& getBleService();
@@ -84,6 +86,7 @@ private:
     EntryService entryService;
     CategoryService categoryService;
     SdService sdService;
+    FlashBackupService flashBackupService;
     NvsService nvsService;
     UsbService usbService;
     BleService bleService;
