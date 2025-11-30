@@ -19,7 +19,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, Horizontal
 from textual.events import Focus, Blur
-from textual.screen import Screen
+from textual.screen import Screen, ModalScreen
 from textual.widgets import Header, Footer, ListView, ListItem, Label, Button, Input, Static
 
 from vault_crypto import decrypt_vault, encrypt_vault, load_file, save_file
@@ -185,6 +185,7 @@ class VaultListScreen(Screen):
         ("d", "delete_entry", "Delete"),
         ("u", "move_up", "Move Up"),
         ("n", "move_down", "Move Down"),
+        ("s", "sort_entries", "Sort"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -247,8 +248,13 @@ class VaultListScreen(Screen):
         item = self._get_highlighted_item()
         if not item or item.entry_id is None:
             return
-        self.store.delete(item.entry_id)
-        self.refresh_list()
+        confirm = ConfirmModal("Delete entry?")
+        self.app.push_screen(confirm, lambda ok: self._handle_delete_confirm(ok, item.entry_id))  # type: ignore[attr-defined]
+
+    def _handle_delete_confirm(self, ok: bool, entry_id: int) -> None:
+        if ok:
+            self.store.delete(entry_id)
+            self.refresh_list()
 
     def action_move_up(self) -> None:
         item = self._get_highlighted_item()
@@ -262,6 +268,18 @@ class VaultListScreen(Screen):
         if not item or item.entry_id is None:
             return
         self.store.reorder(item.entry_id, 1)
+        self.refresh_list()
+
+    def action_sort_entries(self) -> None:
+        # Toggle sort direction and reassign order based on case-insensitive title
+        current = getattr(self, "_sort_desc", False)
+        self._sort_desc = not current
+        entries = sorted(self.store.all(), key=lambda e: (e.serviceName or "").lower(), reverse=self._sort_desc)
+        for idx, e in enumerate(entries):
+            if e.id is not None:
+                self.store._entries[e.id] = e  # type: ignore[attr-defined]
+                e.order = idx
+        self.store.save()
         self.refresh_list()
 
     # --- mouse/keyboard events --------------------------------------------
@@ -350,6 +368,25 @@ class EditEntryScreen(Screen):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+class ConfirmModal(ModalScreen[bool]):
+    def __init__(self, prompt: str):
+        super().__init__()
+        self.prompt = prompt
+
+    def compose(self) -> ComposeResult:
+        yield Static(self.prompt)
+        with Horizontal():
+            yield Button("Yes", id="yes", variant="error")
+            yield Button("No", id="no")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "yes")
+
+    def on_key(self, event: Key) -> None:
+        if event.key == "escape":
+            self.dismiss(False)
 
     def action_generate_password(self) -> None:
         pwd_input = self.query_one("#password-input", Input)
