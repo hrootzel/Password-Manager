@@ -204,6 +204,8 @@ void BleKeyboard::begin(const uint8_t *layout, uint16_t showAs) {
 
     advertising = pServer->getAdvertising();
     advertising->setAppearance(appearance);
+#if defined(USE_NIMBLE)
+#endif
     if (_randUUID) { // this workaround makes 2 Bruce connect and work on the same Android device
         advertising->addServiceUUID(BLEUUID((uint16_t)(ESP.getEfuseMac() & 0xFFFF)));
     } else {
@@ -250,24 +252,20 @@ void BleKeyboard::set_product_id(uint16_t pid) { this->pid = pid; }
 void BleKeyboard::set_version(uint16_t version) { this->version = version; }
 
 void BleKeyboard::sendReport(KeyReport *keys) {
-    // if (this->isConnected())
     if (this->isConnected() && this->inputKeyboard->getSubscribedCount() > 0) {
         this->inputKeyboard->setValue((uint8_t *)keys, sizeof(KeyReport));
         this->inputKeyboard->notify();
 #if defined(USE_NIMBLE)
-        // vTaskDelay(delayTicks);
         this->delay_ms(_delay_ms);
 #endif // USE_NIMBLE
     }
 }
 
 void BleKeyboard::sendReport(MediaKeyReport *keys) {
-    // if (this->isConnected())
     if (this->isConnected() && this->inputKeyboard->getSubscribedCount() > 0) {
         this->inputMediaKeys->setValue((uint8_t *)keys, sizeof(MediaKeyReport));
         this->inputMediaKeys->notify();
 #if defined(USE_NIMBLE)
-        // vTaskDelay(delayTicks);
         this->delay_ms(_delay_ms);
 #endif // USE_NIMBLE
     }
@@ -426,6 +424,11 @@ void BleKeyboard::onConnect(BLEServer *pServer) {
     // this->connected = true;
     Serial.println("lib connected");
 
+#if defined(USE_NIMBLE)
+    // Without descriptor we can't get handle; keep advertising for new peer to subscribe
+    NimBLEDevice::setSecurityAuth(true, true, true);
+#endif
+
 #if !defined(USE_NIMBLE)
 
     BLE2902 *desc = (BLE2902 *)this->inputKeyboard->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
@@ -440,6 +443,7 @@ void BleKeyboard::onConnect(BLEServer *pServer) {
 
 void BleKeyboard::onDisconnect(BLEServer *pServer) {
     this->connected = false;
+    activeConnHandle = 0xFFFF;
     // NimBLEDevice::startAdvertising();
     Serial.println("lib disconnected");
 
@@ -455,6 +459,19 @@ void BleKeyboard::onDisconnect(BLEServer *pServer) {
 #else
     NimBLEDevice::startAdvertising();
 #endif // !USE_NIMBLE
+}
+
+void BleKeyboard::onConnect(BLEServer *pServer, ble_gap_conn_desc *desc) {
+#if defined(USE_NIMBLE)
+    if (desc != nullptr) {
+        if (activeConnHandle != 0xFFFF && activeConnHandle != desc->conn_handle) {
+            pServer->disconnect(desc->conn_handle); // refuse new while one is active
+            return;
+        }
+        activeConnHandle = desc->conn_handle;
+        connected = true;
+    }
+#endif
 }
 
 void BleKeyboard::onAuthenticationComplete(ble_gap_conn_desc *desc) {
@@ -491,4 +508,9 @@ void BleKeyboard::onSubscribe(
     } else {
         Serial.println("Client subscribed to notifications.");
     }
+
+#if defined(USE_NIMBLE)
+    activeConnHandle = desc->conn_handle;
+    connected = true;
+#endif
 }
