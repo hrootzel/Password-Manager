@@ -310,7 +310,11 @@ class EditEntryScreen(Screen):
             Horizontal(Label("Password:", id="password-label"),
                        PasswordInput(value=self.entry.password, password=True, id="password-input")),
             Horizontal(Label("Notes:", id="notes-label"), Input(value=self.entry.notes, id="notes-input")),
-            Horizontal(Button("Save", id="save", variant="success"), Button("Cancel", id="cancel")),
+            Horizontal(
+                Button("Save", id="save", variant="success"),
+                Button("Generate Password", id="genpass", variant="primary"),
+                Button("Cancel", id="cancel"),
+            ),
             id="edit-layout",
         )
         yield Footer()
@@ -333,12 +337,25 @@ class EditEntryScreen(Screen):
         updated = self._collect_entry()
         self.dismiss(updated)
 
+    @on(Button.Pressed, "#genpass")
+    def generate_password_action(self) -> None:
+        pwd_input = self.query_one("#password-input", Input)
+        pwd_input.value = generate_password()
+        pwd_input.password = False  # show once generated
+        pwd_input.focus()
+
     @on(Button.Pressed, "#cancel")
     def cancel_button(self) -> None:
         self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_generate_password(self) -> None:
+        pwd_input = self.query_one("#password-input", Input)
+        pwd_input.value = generate_password()
+        pwd_input.password = False  # temporarily unmask to show generated value
+        pwd_input.focus()
 
 
 # ---------------------------------------------------------------------------
