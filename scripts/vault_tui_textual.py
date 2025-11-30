@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import secrets
 from dataclasses import dataclass, asdict
 from getpass import getpass
 from pathlib import Path
@@ -17,10 +18,18 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, Horizontal
+from textual.events import Focus, Blur
 from textual.screen import Screen
 from textual.widgets import Header, Footer, ListView, ListItem, Label, Button, Input, Static
 
 from vault_crypto import decrypt_vault, encrypt_vault, load_file, save_file
+
+# --- helpers ---------------------------------------------------------------
+
+
+def generate_password(length: int = 20) -> str:
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$&*-_=+"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +44,7 @@ class VaultEntry:
     username: str = ""
     password: str = ""
     notes: str = ""
+    order: int = 0
 
     @property
     def display(self) -> str:
@@ -66,18 +76,24 @@ class VaultStore:
         if not isinstance(entries, list):
             raise ValueError("Invalid vault format")
         self._extras = {k: v for k, v in data.items() if k != "entries"} if isinstance(data, dict) else {}
-        for item in entries:
+        for idx, item in enumerate(entries):
             raw_id = item.get("id")
             try:
                 parsed_id = int(raw_id) if raw_id is not None else None
             except (TypeError, ValueError):
                 parsed_id = None
+            raw_order = item.get("order")
+            try:
+                parsed_order = int(raw_order) if raw_order is not None else idx
+            except (TypeError, ValueError):
+                parsed_order = idx
             entry = VaultEntry(
                 id=parsed_id,
                 serviceName=item.get("serviceName") or item.get("title") or "",
                 username=item.get("username", ""),
                 password=item.get("password", ""),
                 notes=item.get("notes", ""),
+                order=parsed_order,
             )
             if entry.id is None:
                 entry.id = self._next_id
@@ -98,7 +114,7 @@ class VaultStore:
 
     # --- API used by the UI -----------------------------------------------
     def all(self) -> List[VaultEntry]:
-        return sorted(self._entries.values(), key=lambda e: e.id or 0)
+        return sorted(self._entries.values(), key=lambda e: (e.order, e.id or 0))
 
     def get(self, entry_id: int) -> VaultEntry:
         return self._entries[entry_id]
@@ -106,6 +122,9 @@ class VaultStore:
     def add(self, entry: VaultEntry) -> VaultEntry:
         if entry.id is None:
             entry.id = self._next_id
+        # place at end
+        max_order = max((e.order for e in self._entries.values()), default=-1)
+        entry.order = max_order + 1
         self._entries[entry.id] = entry
         self._next_id = max(self._next_id, entry.id + 1)
         self.save()
@@ -121,6 +140,21 @@ class VaultStore:
         if entry_id in self._entries:
             del self._entries[entry_id]
             self.save()
+
+    def reorder(self, entry_id: int, delta: int) -> None:
+        items = self.all()
+        idx_map = {e.id: i for i, e in enumerate(items) if e.id is not None}
+        if entry_id not in idx_map:
+            return
+        idx = idx_map[entry_id]
+        new_idx = idx + delta
+        if new_idx < 0 or new_idx >= len(items):
+            return
+        items[idx], items[new_idx] = items[new_idx], items[idx]
+        for i, e in enumerate(items):
+            e.order = i
+            self._entries[e.id] = e  # type: ignore[index]
+        self.save()
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +183,8 @@ class VaultListScreen(Screen):
         ("a", "add_entry", "Add"),
         ("e", "edit_entry", "Edit"),
         ("d", "delete_entry", "Delete"),
+        ("u", "move_up", "Move Up"),
+        ("n", "move_down", "Move Down"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -185,6 +221,7 @@ class VaultListScreen(Screen):
     # --- actions -----------------------------------------------------------
     def action_add_entry(self) -> None:
         new_entry = VaultEntry()
+        new_entry.password = generate_password()
 
         def callback(result: Optional[VaultEntry]) -> None:
             if result is not None:
@@ -213,6 +250,20 @@ class VaultListScreen(Screen):
         self.store.delete(item.entry_id)
         self.refresh_list()
 
+    def action_move_up(self) -> None:
+        item = self._get_highlighted_item()
+        if not item or item.entry_id is None:
+            return
+        self.store.reorder(item.entry_id, -1)
+        self.refresh_list()
+
+    def action_move_down(self) -> None:
+        item = self._get_highlighted_item()
+        if not item or item.entry_id is None:
+            return
+        self.store.reorder(item.entry_id, 1)
+        self.refresh_list()
+
     # --- mouse/keyboard events --------------------------------------------
     @on(ListView.Selected, "#vault-list")
     def handle_selected(self, event: ListView.Selected) -> None:
@@ -227,6 +278,16 @@ class VaultListScreen(Screen):
                 self.refresh_list()
 
         self.app.push_screen(EditEntryScreen(entry), callback)  # type: ignore[attr-defined]
+
+
+class PasswordInput(Input):
+    """Input that auto-unmasks while focused."""
+
+    def on_focus(self, event: Focus) -> None:
+        self.password = False
+
+    def on_blur(self, event: Blur) -> None:
+        self.password = True
 
 
 class EditEntryScreen(Screen):
@@ -247,7 +308,7 @@ class EditEntryScreen(Screen):
             Horizontal(Label("Service/Title:", id="name-label"), Input(value=self.entry.serviceName, id="name-input")),
             Horizontal(Label("Username:", id="username-label"), Input(value=self.entry.username, id="username-input")),
             Horizontal(Label("Password:", id="password-label"),
-                       Input(value=self.entry.password, password=True, id="password-input")),
+                       PasswordInput(value=self.entry.password, password=True, id="password-input")),
             Horizontal(Label("Notes:", id="notes-label"), Input(value=self.entry.notes, id="notes-input")),
             Horizontal(Button("Save", id="save", variant="success"), Button("Cancel", id="cancel")),
             id="edit-layout",
@@ -325,3 +386,10 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# --- helpers ---------------------------------------------------------------
+
+def generate_password(length: int = 20) -> str:
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$&*-_=+"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
