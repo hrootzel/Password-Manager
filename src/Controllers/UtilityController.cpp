@@ -1,4 +1,7 @@
 #include "UtilityController.h"
+#if defined(USE_NIMBLE)
+#include <NimBLEDevice.h>
+#endif
 
 UtilityController::UtilityController(IView& display,
                                      IInput& input,
@@ -43,8 +46,7 @@ bool UtilityController::handleSendKeystrokes(const std::string& sendString) {
         bleService.setDeviceName(globalState.getBleDeviceName());
         bleService.begin();
         display.subMessage("Sent keystrokes (BLE)", 0);
-        bleService.sendString(sendString);
-        sent = bleService.isReady();
+        sent = bleService.sendString(sendString);
     }
 
     if (!sent) {
@@ -141,7 +143,7 @@ bool UtilityController::handleGeneralSettings() {
     std::vector<std::string> timeLabels = timeTransformer.getAllTimeLabels();
     std::vector<uint32_t> timeValues = timeTransformer.getAllTimeValues();
     std::vector<std::string> brightnessValues = {"20", "60", "100", "140", "160", "200", "240"};
-    std::vector<std::string> settingLabels = {" Keyboard ", "Brightness", "Screen off", "Vault lock", " BLE ", "BLE name", "Clear BLE"};
+    std::vector<std::string> settingLabels = {" Keyboard ", "Brightness", "Screen off", "Vault lock", " BLE ", "BLE name", "Forget BLE", "Clear BLE"};
     
     auto layouts = KeyboardLayoutMapper::getAllLayoutNames();
     auto selectedLayout = globalState.getSelectedKeyboardLayout().empty() ? layouts[2] : globalState.getSelectedKeyboardLayout();
@@ -154,6 +156,7 @@ bool UtilityController::handleGeneralSettings() {
         selectedLockCloseTime + " ", // hack to prevent same values
         globalState.getBleKeyboardEnabled() ? "On" : "Off",
         globalState.getBleDeviceName(),
+        "Forget",
         "Reset"
     };
 
@@ -219,6 +222,17 @@ bool UtilityController::handleGeneralSettings() {
             if (confirm) {
                 bleService.clearBonds();
                 settings[verticalIndex] = "Reset";
+            }
+        } else if (selectedSetting == "Forget BLE") {
+            auto confirm = confirmationSelector.select("Forget BLE", "Disconnect and forget current peer?");
+            if (confirm) {
+#if defined(USE_NIMBLE)
+                NimBLEDevice::stopAdvertising();
+#endif
+                bleService.clearBonds();
+                bleService.end();
+                bleService.begin(); // restart advertising for new connections
+                settings[verticalIndex] = "Forget";
             }
         }
     }

@@ -7,6 +7,7 @@ DependencyProvider::DependencyProvider(IView& view, IInput& input)
       categoryService(categoryRepository),
       cryptoService(),
       sdService(),
+      flashBackupService(),
       nvsService(),
       usbService(),
       bleService(),
@@ -22,7 +23,7 @@ DependencyProvider::DependencyProvider(IView& view, IInput& input)
       modelTransformer(),
       timeTransformer(),
       vaultController(view, input, horizontalSelector, verticalSelector, 
-                      confirmationSelector, stringPromptSelector, sdService, 
+                      confirmationSelector, stringPromptSelector, sdService, flashBackupService,
                       nvsService, categoryService, entryService, cryptoService, 
                       jsonTransformer, modelTransformer),
       entryController(view, input, horizontalSelector, verticalSelector, fieldActionSelector,
@@ -50,6 +51,7 @@ CryptoService& DependencyProvider::getCryptoService() { return cryptoService; }
 EntryService& DependencyProvider::getEntryService() { return entryService; }
 CategoryService& DependencyProvider::getCategoryService() { return categoryService; }
 SdService& DependencyProvider::getSdService() { return sdService; }
+FlashBackupService& DependencyProvider::getFlashBackupService() { return flashBackupService; }
 NvsService& DependencyProvider::getNvsService() { return nvsService; }
 UsbService& DependencyProvider::getUsbService() { return usbService; }
 BleService& DependencyProvider::getBleService() { return bleService; }

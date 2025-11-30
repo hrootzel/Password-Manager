@@ -95,6 +95,14 @@ void ActionDispatcher::executeAction(ActionEnum action) {
             }
             break;
 
+        case ActionEnum::BackupVault:
+            provider.getVaultController().handleVaultBackup();
+            break;
+
+        case ActionEnum::RestoreVault:
+            provider.getVaultController().handleVaultRestore();
+            break;
+
         case ActionEnum::SelectField:
             provider.getUtilityController().handleKeyboardInitialization();
             selectedField = provider.getEntryController().handleFieldSelection(selectedEntry);

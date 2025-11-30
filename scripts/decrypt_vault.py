@@ -17,9 +17,12 @@ def main() -> None:
     if not password:
         raise SystemExit("Password is required")
 
-    plaintext_json, verified = decrypt_vault(blob, password)
+    try:
+        plaintext_json, verified = decrypt_vault(blob, password)
+    except ValueError as exc:
+        raise SystemExit(f"Invalid vault format: {exc}")
     if not verified:
-        raise SystemExit("Checksum mismatch: wrong password or corrupted vault.")
+        raise SystemExit("Authentication failed: wrong password or corrupted vault.")
 
     # Ensure it is valid JSON
     parsed = json.loads(plaintext_json)

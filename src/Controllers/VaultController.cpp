@@ -1,4 +1,14 @@
 #include "VaultController.h"
+#include <algorithm>
+
+namespace {
+void zeroString(std::string& s) {
+    if (!s.empty()) {
+        std::fill(s.begin(), s.end(), '\0');
+        s.clear();
+    }
+}
+} // namespace
 
 VaultController::VaultController(IView& display, 
                                  IInput& input, 
@@ -7,6 +17,7 @@ VaultController::VaultController(IView& display,
                                  ConfirmationSelector& confirmationSelector,
                                  StringPromptSelector& stringPromptSelector,
                                  SdService& sdService, 
+                                 FlashBackupService& flashBackupService,
                                  NvsService& nvsService, 
                                  CategoryService& categoryService, 
                                  EntryService& entryService,
@@ -20,12 +31,17 @@ VaultController::VaultController(IView& display,
       confirmationSelector(confirmationSelector),
       stringPromptSelector(stringPromptSelector),
       sdService(sdService), 
+      flashBackupService(flashBackupService),
       nvsService(nvsService), 
       categoryService(categoryService), 
       entryService(entryService),
       cryptoService(cryptoService),
       jsonTransformer(jsonTransformer),
       modelTransformer(modelTransformer) {}
+
+VaultController::~VaultController() {
+    globalState.clearSensitive();
+}
 
 ActionEnum VaultController::actionNoVault() {
     std::vector<ActionEnum> availableActions = {ActionEnum::OpenVault, ActionEnum::CreateVault, ActionEnum::UpdateSettings};
@@ -42,8 +58,8 @@ ActionEnum VaultController::actionNoVault() {
 }
 
 ActionEnum VaultController::actionVaultSelected() {
-    std::vector<ActionEnum> availableActions = {ActionEnum::SelectEntry, ActionEnum::CreateEntry, ActionEnum::DeleteEntry};
-    auto actionIcons = {IconEnum::SelectEntry, IconEnum::AddEntry, IconEnum::DeleteEntry};
+    std::vector<ActionEnum> availableActions = {ActionEnum::SelectEntry, ActionEnum::CreateEntry, ActionEnum::DeleteEntry, ActionEnum::BackupVault};
+    auto actionIcons = {IconEnum::SelectEntry, IconEnum::AddEntry, IconEnum::DeleteEntry, IconEnum::SdCard};
     auto labels = ActionEnumMapper::getActionNames(availableActions);
     auto iconNames = IconEnumMapper::getIconNames(actionIcons);
 
@@ -101,22 +117,21 @@ bool VaultController::handleVaultCreation() {
 
     // Encrypt empty json struct
     display.subMessage("Creating vault...", 0);
-    auto salt = cryptoService.generateSalt(globalState.getSaltSize());
     auto jsonEmpty = jsonTransformer.emptyJsonStructure();
-    auto checksum = cryptoService.generateChecksum(jsonEmpty, globalState.getChecksumSize());
-    auto jsonEncrypted = cryptoService.encryptWithPassphrase(jsonEmpty, pass1, salt);
+    auto payload = cryptoService.encryptVault(jsonEmpty, pass1);
 
     // Create VaultFile to handle data
     VaultFile vault = VaultFile(vaultPath, {});
-    vault.setSalt(salt);
-    vault.setChecksum(checksum);
-    vault.setEncryptedData(jsonEncrypted);
+    vault.setSalt(payload.salt);
+    vault.setNonce(payload.nonce);
+    vault.setTag(payload.tag);
+    vault.setEncryptedData(payload.ciphertext);
     entryService.setContainerName(vaultName);
 
     // Save to SD card
     sdService.begin();
     sdService.ensureDirectory(globalState.getDefaultVaultPath());
-    auto confirmation = sdService.writeBinaryFile(vaultPath, vault.getData());
+    auto confirmation = sdService.atomicWriteBinaryFileWithBackup(vaultPath, vault.getData());
     sdService.close();
     if (!confirmation) {
         return false;
@@ -127,6 +142,15 @@ bool VaultController::handleVaultCreation() {
     // Update state
     globalState.setLoadedVaultPassword(pass1);
     globalState.setLoadedVaultPath(vaultPath);
+
+    // Zero sensitive temporaries
+    zeroString(pass2);
+    zeroString(pass1);
+    zeroString(jsonEmpty);
+    std::fill(payload.salt.begin(), payload.salt.end(), 0);
+    std::fill(payload.nonce.begin(), payload.nonce.end(), 0);
+    std::fill(payload.tag.begin(), payload.tag.end(), 0);
+    std::fill(payload.ciphertext.begin(), payload.ciphertext.end(), 0);
     return true;
 }
 
@@ -150,13 +174,12 @@ bool VaultController::handleVaultSave() {
 
     // Create VaultFile to handle data
     VaultFile vault(loadedVaultPath, vaultData);
-
-    // Get Salt from the data of the file
-    auto salt = vault.getSalt();
-    if (salt.empty()) {
+    if (!vault.hasValidMagic()) {
         display.subMessage("Invalid vault data", 2000);
         return false;
     }
+    std::fill(vaultData.begin(), vaultData.end(), 0);
+    vaultData.clear();
 
     // Get up to date data
     auto entries = entryService.getAllEntries();
@@ -165,19 +188,23 @@ bool VaultController::handleVaultSave() {
     // tranform to JSON
     auto jsonData = jsonTransformer.mergeEntriesAndCategoriesToJson(entries, categories);
 
-    // Calculate data checksum
-    auto checksum = cryptoService.generateChecksum(jsonData, globalState.getChecksumSize());
-
     // Encrypt data
-    auto encryptedData = cryptoService.encryptWithPassphrase(jsonData, loadedVaultPassword, salt);
+    auto payload = cryptoService.encryptVault(jsonData, loadedVaultPassword);
 
     // Update VaultFile
-    vault.setChecksum(checksum);
-    vault.setEncryptedData(encryptedData);
+    vault.setSalt(payload.salt);
+    vault.setNonce(payload.nonce);
+    vault.setTag(payload.tag);
+    vault.setEncryptedData(payload.ciphertext);
+    zeroString(jsonData);
+    std::fill(payload.salt.begin(), payload.salt.end(), 0);
+    std::fill(payload.nonce.begin(), payload.nonce.end(), 0);
+    std::fill(payload.tag.begin(), payload.tag.end(), 0);
+    std::fill(payload.ciphertext.begin(), payload.ciphertext.end(), 0);
 
     // Save
     sdService.begin();
-    auto confirmation = sdService.writeBinaryFile(loadedVaultPath, vault.getData());
+    auto confirmation = sdService.atomicWriteBinaryFileWithBackup(loadedVaultPath, vault.getData());
     sdService.close();
 
     if (!confirmation) {
@@ -188,10 +215,195 @@ bool VaultController::handleVaultSave() {
     return true;
 }
 
+bool VaultController::handleVaultBackup() {
+    auto loadedVaultPath = globalState.getLoadedVaultPath();
+    if (loadedVaultPath.empty()) {
+        display.subMessage("No vault loaded", 2000);
+        return false;
+    }
+    if (!sdService.begin()) {
+        display.subMessage("SD not available", 2000);
+        return false;
+    }
+
+    auto data = sdService.readBinaryFile(loadedVaultPath);
+    sdService.close();
+    if (data.empty()) {
+        display.subMessage("Failed to read vault", 2000);
+        return false;
+    }
+
+    if (!flashBackupService.begin()) {
+        display.subMessage("Flash mount failed", 2000);
+        return false;
+    }
+    auto vaultName = sdService.getFileName(loadedVaultPath);
+    bool ok = flashBackupService.writeBackup(vaultName, data);
+    flashBackupService.close();
+
+    std::fill(data.begin(), data.end(), 0);
+    data.clear();
+
+    if (!ok) {
+        display.subMessage("Backup failed", 2000);
+        return false;
+    }
+    display.subMessage("Backup saved to flash", 2000);
+    return true;
+}
+
+bool VaultController::handleVaultRestore() {
+    auto loadedVaultPath = globalState.getLoadedVaultPath();
+    auto loadedVaultPassword = globalState.getLoadedVaultPassword();
+    if (loadedVaultPath.empty() || loadedVaultPassword.empty()) {
+        display.subMessage("No vault loaded", 2000);
+        return false;
+    }
+
+    if (!flashBackupService.begin()) {
+        display.subMessage("Flash mount failed", 2000);
+        return false;
+    }
+    auto vaultName = sdService.getFileName(loadedVaultPath);
+    auto backupData = flashBackupService.readBackup(vaultName);
+    flashBackupService.close();
+
+    if (backupData.empty()) {
+        display.subMessage("No backup found", 2000);
+        return false;
+    }
+
+    // Validate magic quickly
+    VaultFile tempVault(loadedVaultPath, backupData);
+    if (!tempVault.hasValidMagic()) {
+        display.subMessage("Backup invalid", 2000);
+        std::fill(backupData.begin(), backupData.end(), 0);
+        backupData.clear();
+        return false;
+    }
+
+    if (!sdService.begin()) {
+        display.subMessage("SD not available", 2000);
+        std::fill(backupData.begin(), backupData.end(), 0);
+        backupData.clear();
+        return false;
+    }
+    bool written = sdService.atomicWriteBinaryFileWithBackup(loadedVaultPath, backupData);
+    sdService.close();
+
+    if (!written) {
+        display.subMessage("Restore failed", 2000);
+        std::fill(backupData.begin(), backupData.end(), 0);
+        backupData.clear();
+        return false;
+    }
+
+    // Reload entries using stored password
+    bool loaded = loadDataFromEncryptedFile(loadedVaultPath, &loadedVaultPassword);
+
+    std::fill(backupData.begin(), backupData.end(), 0);
+    backupData.clear();
+
+    if (!loaded) {
+        display.subMessage("Restore write ok, load failed", 2000);
+        return false;
+    }
+
+    display.subMessage("Restored from flash", 2000);
+    return true;
+}
+
+bool VaultController::handleFlashVaultMenu() {
+    if (!flashBackupService.begin()) {
+        display.subMessage("Flash mount failed", 2000);
+        return false;
+    }
+    auto backups = flashBackupService.listBackups();
+    if (backups.empty()) {
+        flashBackupService.close();
+        display.subMessage("No flash vaults", 2000);
+        return false;
+    }
+    // Select which backup
+    uint16_t idx = verticalSelector.select("Flash Vaults", backups, true, false, {}, {}, false, false);
+    if (idx >= backups.size()) {
+        flashBackupService.close();
+        return false;
+    }
+    std::string selected = backups[idx];
+
+    // Choose action: restore (load) or copy to SD or delete
+    std::vector<ActionEnum> actions = {ActionEnum::CopyFlashToSd, ActionEnum::DeleteFlashVault};
+    std::vector<std::string> labels = ActionEnumMapper::getActionNames(actions);
+    std::vector<std::string> icons = {IconEnumMapper::toString(IconEnum::SdCard), IconEnumMapper::toString(IconEnum::DeleteEntry)};
+    int actionIdx = horizontalSelector.select("Flash Vault", labels, "", "", icons);
+    if (actionIdx < 0 || actionIdx >= static_cast<int>(actions.size())) {
+        flashBackupService.close();
+        return false;
+    }
+    auto chosen = actions[actionIdx];
+
+    // Read backup
+    auto backupData = flashBackupService.readBackup(selected);
+    bool flashClosed = false;
+
+    auto closeFlash = [&]() {
+        if (!flashClosed) {
+            flashBackupService.close();
+            flashClosed = true;
+        }
+    };
+
+    if (backupData.empty()) {
+        closeFlash();
+        display.subMessage("Backup missing", 2000);
+        return false;
+    }
+
+    if (chosen == ActionEnum::DeleteFlashVault) {
+        bool ok = flashBackupService.deleteBackup(selected);
+        closeFlash();
+        std::fill(backupData.begin(), backupData.end(), 0);
+        backupData.clear();
+        display.subMessage(ok ? "Flash backup deleted" : "Delete failed", 2000);
+        return false; // return to top menu
+    }
+
+    // Validate magic
+    VaultFile tempVault(selected, backupData);
+    if (!tempVault.hasValidMagic()) {
+        closeFlash();
+        display.subMessage("Backup invalid", 2000);
+        std::fill(backupData.begin(), backupData.end(), 0);
+        backupData.clear();
+        return false;
+    }
+
+    // Derive target path on SD
+    auto targetPath = globalState.getDefaultVaultPath() + "/" + selected + ".vault";
+
+    // Copy to SD
+    if (!sdService.begin()) {
+        closeFlash();
+        display.subMessage("SD not available", 2000);
+        std::fill(backupData.begin(), backupData.end(), 0);
+        backupData.clear();
+        return false;
+    }
+    sdService.ensureDirectory(globalState.getDefaultVaultPath());
+    bool ok = sdService.atomicWriteBinaryFileWithBackup(targetPath, backupData);
+    sdService.close();
+    closeFlash();
+    std::fill(backupData.begin(), backupData.end(), 0);
+    backupData.clear();
+    display.subMessage(ok ? "Copied to SD" : "Copy failed", 2000);
+    return false; // return to top menu; vault not auto-loaded
+}
+
 bool VaultController::handleVaultLoading() {
     // Loading method
-    std::vector<ActionEnum> availableActions = {ActionEnum::LoadSdVault};
-    std::vector<IconEnum> actionIcons = {IconEnum::SdCard};
+    std::vector<ActionEnum> availableActions = {ActionEnum::LoadSdVault, ActionEnum::LoadFlashVault};
+    std::vector<IconEnum> actionIcons = {IconEnum::SdCard, IconEnum::SdCard};
     auto actionLabels = ActionEnumMapper::getActionNames(availableActions);
     auto iconNames = IconEnumMapper::getIconNames(actionIcons);
 
@@ -204,6 +416,8 @@ bool VaultController::handleVaultLoading() {
     switch (action) {
         case ActionEnum::LoadSdVault:
             return loadSdVault();
+        case ActionEnum::LoadFlashVault:
+            return handleFlashVaultMenu();
     }
 }
 
@@ -271,23 +485,35 @@ bool VaultController::loadSdVault() {
 }
 
 bool VaultController::loadDataFromEncryptedFile(std::string path) {
+    return loadDataFromEncryptedFile(path, nullptr);
+}
+
+bool VaultController::loadDataFromEncryptedFile(std::string path, const std::string* providedPassword) {
     auto vaultBinary = sdService.readBinaryFile(path);
     VaultFile vaultFile = VaultFile(path, vaultBinary);
-    auto password = stringPromptSelector.select("Open encrypted vault", "Enter master password", "", false, true, false);
-    display.subMessage("Loading...", 0);
-    auto salt = vaultFile.getSalt();
-    auto savedChecksum = vaultFile.getChecksum();
-    auto encryptedData = vaultFile.getEncryptedData();
-    
-    // Bad password
-    auto decryptedData = cryptoService.decryptWithPassphrase(encryptedData, password, salt);
-    if (decryptedData.empty()) {
+    if (!vaultFile.hasValidMagic()) {
+        display.subMessage("Invalid vault data", 2000);
         return false;
     }
+    std::fill(vaultBinary.begin(), vaultBinary.end(), 0);
+    vaultBinary.clear();
 
-    // Bad password or salt
-    auto dataChecksum = cryptoService.generateChecksum(decryptedData, globalState.getChecksumSize());
-    if (savedChecksum != dataChecksum) {
+    std::string password = providedPassword ? *providedPassword : stringPromptSelector.select("Open encrypted vault", "Enter master password", "", false, true, false);
+    display.subMessage("Loading...", 0);
+    auto salt = vaultFile.getSalt();
+    auto nonce = vaultFile.getNonce();
+    auto tag = vaultFile.getTag();
+    auto encryptedData = vaultFile.getEncryptedData();
+
+    // Bad password
+    VaultAeadBlob blob{salt, nonce, tag, encryptedData};
+    auto decryptedData = cryptoService.decryptVault(blob, password);
+    if (decryptedData.empty()) {
+        zeroString(password);
+        std::fill(salt.begin(), salt.end(), 0);
+        std::fill(nonce.begin(), nonce.end(), 0);
+        std::fill(tag.begin(), tag.end(), 0);
+        std::fill(encryptedData.begin(), encryptedData.end(), 0);
         return false;
     }
 
@@ -302,5 +528,12 @@ bool VaultController::loadDataFromEncryptedFile(std::string path) {
     auto parentDir = sdService.getParentDirectory(path);
     nvsService.saveString(globalState.getNvsLastUsedVaultPath(), parentDir);
 
+    // Zero sensitive temporaries
+    zeroString(password);
+    zeroString(decryptedData);
+    std::fill(salt.begin(), salt.end(), 0);
+    std::fill(nonce.begin(), nonce.end(), 0);
+    std::fill(tag.begin(), tag.end(), 0);
+    std::fill(encryptedData.begin(), encryptedData.end(), 0);
     return true;
 }

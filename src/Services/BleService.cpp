@@ -48,25 +48,33 @@ bool BleService::isReady() const {
     return initialized && keyboard.isConnected();
 }
 
-void BleService::sendString(const std::string& text) {
+bool BleService::sendString(const std::string& text) {
     if (!initialized) {
-        return;
+        return false;
     }
 
-    const unsigned long connectionTimeoutMs = 5000;
+#if defined(USE_NIMBLE)
+    NimBLEDevice::startAdvertising(); // ensure we're discoverable if we lost the link
+#endif
+
+    const unsigned long connectionTimeoutMs = 500; // quick fallback if not connected
     unsigned long start = millis();
     while (!keyboard.isConnected() && (millis() - start < connectionTimeoutMs)) {
-        delay(50);
+        delay(10);
     }
 
     if (!keyboard.isConnected()) {
-        return;
+        return false;
     }
 
     keyboard.releaseAll();
     for (const char& c : text) {
         keyboard.write(static_cast<uint8_t>(c));
+        if (!keyboard.isConnected()) {
+            break; // stop mid-stream if link drops
+        }
     }
+    return keyboard.isConnected();
 }
 
 void BleService::clearBonds() {
@@ -84,7 +92,9 @@ void BleService::sendChunkedString(const std::string& data, size_t chunkSize, un
         size_t currentChunkSize = (remainingLength > chunkSize) ? chunkSize : remainingLength;
 
         std::string chunk = data.substr(sentLength, currentChunkSize);
-        sendString(chunk);
+        if (!sendString(chunk)) {
+            break;
+        }
 
         sentLength += currentChunkSize;
         if (!keyboard.isConnected()) {
