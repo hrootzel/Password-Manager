@@ -13,12 +13,15 @@ from dataclasses import dataclass, asdict
 from getpass import getpass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+try:
+    import pyperclip
+except ImportError:
+    pyperclip = None
 
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, Horizontal
-from textual.events import Focus, Blur
 from textual.screen import Screen, ModalScreen
 from textual.widgets import Header, Footer, ListView, ListItem, Label, Button, Input, Static
 
@@ -67,11 +70,18 @@ class VaultStore:
     def load(self) -> None:
         if not self.path.exists():
             return
-        blob = load_file(self.path.as_posix())
-        plaintext, ok = decrypt_vault(blob, self.password)
+        blob_bytes = bytearray(load_file(self.path.as_posix()))
+        plaintext, ok = decrypt_vault(bytes(blob_bytes), self.password)
         if not ok:
+            # wipe and raise
+            for i in range(len(blob_bytes)):
+                blob_bytes[i] = 0
             raise ValueError("Wrong password or corrupted vault")
         data = json.loads(plaintext)
+        # wipe raw buffers
+        for i in range(len(blob_bytes)):
+            blob_bytes[i] = 0
+        plaintext = None  # type: ignore
         entries = data.get("entries") if isinstance(data, dict) else data
         if not isinstance(entries, list):
             raise ValueError("Invalid vault format")
@@ -100,6 +110,8 @@ class VaultStore:
             self._entries[entry.id] = entry
             if isinstance(entry.id, int):
                 self._next_id = max(self._next_id, entry.id + 1)
+        # best-effort wipe
+        data = None  # type: ignore
 
     def save(self) -> None:
         data_entries = []
@@ -111,6 +123,8 @@ class VaultStore:
         plaintext = json.dumps(payload, indent=2)
         blob = encrypt_vault(plaintext, self.password)
         save_file(self.path.as_posix(), blob)
+        plaintext = None  # type: ignore
+        blob = b""  # type: ignore
 
     # --- API used by the UI -----------------------------------------------
     def all(self) -> List[VaultEntry]:
@@ -239,6 +253,7 @@ class VaultListScreen(Screen):
 
         def callback(result: Optional[VaultEntry]) -> None:
             if result is not None:
+                result.order = entry.order
                 self.store.update(result)
                 self.refresh_list()
 
@@ -292,20 +307,35 @@ class VaultListScreen(Screen):
 
         def callback(result: Optional[VaultEntry]) -> None:
             if result is not None:
+                result.order = entry.order
                 self.store.update(result)
                 self.refresh_list()
 
         self.app.push_screen(EditEntryScreen(entry), callback)  # type: ignore[attr-defined]
 
 
-class PasswordInput(Input):
-    """Input that auto-unmasks while focused."""
+class TrackedInput(Input):
+    """Input that reports focus to the edit screen."""
 
-    def on_focus(self, event: Focus) -> None:
+    def on_focus(self, event) -> None:
+        if isinstance(getattr(self, "screen", None), EditEntryScreen):
+            self.screen.set_last_focused(self)  # type: ignore[attr-defined]
+
+    def on_blur(self, event) -> None:
+        if isinstance(getattr(self, "screen", None), EditEntryScreen):
+            self.screen.clear_highlight(getattr(self, "id", None))  # type: ignore[attr-defined]
+
+
+class PasswordInput(TrackedInput):
+    """Input that auto-unmasks while focused and notifies parent screen."""
+
+    def on_focus(self, event) -> None:
         self.password = False
+        super().on_focus(event)
 
-    def on_blur(self, event: Blur) -> None:
+    def on_blur(self, event) -> None:
         self.password = True
+        super().on_blur(event)
 
 
 class EditEntryScreen(Screen):
@@ -318,36 +348,53 @@ class EditEntryScreen(Screen):
     def __init__(self, entry: VaultEntry) -> None:
         super().__init__()
         self.entry = entry
+        self._last_focused_id: str = "name-input"
+        # placeholders for inputs
+        self.name_input: Input | None = None
+        self.user_input: Input | None = None
+        self.pass_input: PasswordInput | None = None
+        self.notes_input: Input | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
+        copy_disabled = pyperclip is None
+        self.name_input = TrackedInput(value=self.entry.serviceName, id="name-input")
+        self.user_input = TrackedInput(value=self.entry.username, id="username-input")
+        self.pass_input = PasswordInput(value=self.entry.password, password=True, id="password-input")
+        self.notes_input = TrackedInput(value=self.entry.notes, id="notes-input")
         yield Vertical(
             Label(f"Editing entry #{self.entry.id}" if self.entry.id else "New entry"),
-            Horizontal(Label("Service/Title:", id="name-label"), Input(value=self.entry.serviceName, id="name-input")),
-            Horizontal(Label("Username:", id="username-label"), Input(value=self.entry.username, id="username-input")),
-            Horizontal(Label("Password:", id="password-label"),
-                       PasswordInput(value=self.entry.password, password=True, id="password-input")),
-            Horizontal(Label("Notes:", id="notes-label"), Input(value=self.entry.notes, id="notes-input")),
+            Horizontal(Label("Service/Title:", id="name-label"), self.name_input),
+            Horizontal(Label("Username:", id="username-label"), self.user_input),
+            Horizontal(Label("Password:", id="password-label"), self.pass_input),
+            Horizontal(Label("Notes:", id="notes-label"), self.notes_input),
             Horizontal(
                 Button("Save", id="save", variant="success"),
                 Button("Generate Password", id="genpass", variant="primary"),
+                Button("Copy Field", id="copyfield", disabled=copy_disabled),
                 Button("Cancel", id="cancel"),
             ),
             id="edit-layout",
         )
         yield Footer()
 
+    def on_mount(self) -> None:
+        if self.name_input:
+            self.name_input.focus()
+            self._highlight_focus(self.name_input.id)
+
     def _collect_entry(self) -> VaultEntry:
-        name = self.query_one("#name-input", Input).value
-        username = self.query_one("#username-input", Input).value
-        password = self.query_one("#password-input", Input).value
-        notes = self.query_one("#notes-input", Input).value
+        name = self.name_input.value if self.name_input else ""
+        username = self.user_input.value if self.user_input else ""
+        password = self.pass_input.value if self.pass_input else ""
+        notes = self.notes_input.value if self.notes_input else ""
         return VaultEntry(
             id=self.entry.id,
             serviceName=name,
             username=username,
             password=password,
             notes=notes,
+            order=self.entry.order,
         )
 
     @on(Button.Pressed, "#save")
@@ -357,10 +404,22 @@ class EditEntryScreen(Screen):
 
     @on(Button.Pressed, "#genpass")
     def generate_password_action(self) -> None:
-        pwd_input = self.query_one("#password-input", Input)
-        pwd_input.value = generate_password()
-        pwd_input.password = False  # show once generated
-        pwd_input.focus()
+        if self.pass_input:
+            self.pass_input.value = generate_password()
+            self.pass_input.password = False  # show once generated
+            self.pass_input.focus()
+            self._highlight_focus(self.pass_input.id)
+
+    @on(Button.Pressed, "#copyfield")
+    def copy_field(self) -> None:
+        if pyperclip is None:
+            return
+        target_id = self._last_focused_id or "name-input"
+        try:
+            value = self.query_one(f"#{target_id}", Input).value
+            pyperclip.copy(value)
+        except Exception:
+            return
 
     @on(Button.Pressed, "#cancel")
     def cancel_button(self) -> None:
@@ -368,6 +427,33 @@ class EditEntryScreen(Screen):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def set_last_focused(self, inp: Input) -> None:
+        self._last_focused_id = inp.id or self._last_focused_id
+        self._highlight_focus(inp.id)
+
+    def clear_highlight(self, input_id: Optional[str]) -> None:
+        self._clear_highlight(input_id)
+
+    def _highlight_focus(self, input_id: Optional[str]) -> None:
+        for field_id in ["name-input", "username-input", "password-input", "notes-input"]:
+            try:
+                self.query_one(f"#{field_id}", Input).remove_class("copy-target")
+            except Exception:
+                continue
+        if input_id:
+            try:
+                self.query_one(f"#{input_id}", Input).add_class("copy-target")
+            except Exception:
+                pass
+
+    def _clear_highlight(self, input_id: Optional[str]) -> None:
+        if not input_id:
+            return
+        try:
+            self.query_one(f"#{input_id}", Input).remove_class("copy-target")
+        except Exception:
+            pass
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -388,12 +474,6 @@ class ConfirmModal(ModalScreen[bool]):
         if event.key == "escape":
             self.dismiss(False)
 
-    def action_generate_password(self) -> None:
-        pwd_input = self.query_one("#password-input", Input)
-        pwd_input.value = generate_password()
-        pwd_input.password = False  # temporarily unmask to show generated value
-        pwd_input.focus()
-
 
 # ---------------------------------------------------------------------------
 # App
@@ -408,6 +488,7 @@ class PasswordManagerApp(App):
     #edit-layout { padding: 1; }
     #edit-layout > * { margin-bottom: 1; }
     #edit-layout > *:last-child { margin-bottom: 0; }
+    .copy-target { border: solid #6c8099; }
     """
 
     def __init__(self, vault_path: Path, password: str) -> None:
@@ -416,6 +497,14 @@ class PasswordManagerApp(App):
 
     def on_mount(self) -> None:
         self.push_screen(VaultListScreen())
+
+    def exit(self, result: int | None = None, return_code: int = 0, message: str | None = None) -> None:
+        # best-effort wipe of secrets in memory
+        if hasattr(self, "store") and isinstance(self.store, VaultStore):
+            self.store.password = ""
+            for e in self.store._entries.values():
+                e.password = ""
+        super().exit(result=result, return_code=return_code, message=message)
 
 
 def main() -> int:
