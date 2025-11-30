@@ -43,8 +43,7 @@ bool UtilityController::handleSendKeystrokes(const std::string& sendString) {
         bleService.setDeviceName(globalState.getBleDeviceName());
         bleService.begin();
         display.subMessage("Sent keystrokes (BLE)", 0);
-        bleService.sendString(sendString);
-        sent = bleService.isReady();
+        sent = bleService.sendString(sendString);
     }
 
     if (!sent) {

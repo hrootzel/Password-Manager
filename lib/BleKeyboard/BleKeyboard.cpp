@@ -433,6 +433,8 @@ void BleKeyboard::onConnect(BLEServer *pServer) {
     desc = (BLE2902 *)this->inputMediaKeys->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
     desc->setNotifications(true);
 
+#else
+    NimBLEDevice::startAdvertising(); // allow new peers to connect as well
 #endif // !USE_NIMBLE
 }
 
@@ -450,6 +452,8 @@ void BleKeyboard::onDisconnect(BLEServer *pServer) {
 
     advertising->start();
 
+#else
+    NimBLEDevice::startAdvertising();
 #endif // !USE_NIMBLE
 }
 
