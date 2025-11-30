@@ -12,7 +12,7 @@ import secrets
 from dataclasses import dataclass, asdict
 from getpass import getpass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 try:
     import pyperclip
 except ImportError:
@@ -20,8 +20,8 @@ except ImportError:
 
 from textual import on
 from textual.app import App, ComposeResult
-from textual.binding import Binding
 from textual.containers import Vertical, Horizontal
+from textual.events import Key
 from textual.screen import Screen, ModalScreen
 from textual.widgets import Header, Footer, ListView, ListItem, Label, Button, Input, Static
 
@@ -223,6 +223,15 @@ class VaultListScreen(Screen):
         for entry in self.store.all():
             lv.append(VaultItem(entry))
 
+    def _open_editor(self, entry: VaultEntry) -> None:
+        def callback(result: Optional[VaultEntry]) -> None:
+            if result is not None:
+                result.order = entry.order
+                self.store.update(result)
+                self.refresh_list()
+
+        self.app.push_screen(EditEntryScreen(entry), callback)  # type: ignore[attr-defined]
+
     def _get_highlighted_item(self) -> Optional[VaultItem]:
         lv = self.query_one("#vault-list", ListView)
         if lv.index is None or not lv.children:
@@ -250,14 +259,7 @@ class VaultListScreen(Screen):
         if not item or item.entry_id is None:
             return
         entry = self.store.get(item.entry_id)
-
-        def callback(result: Optional[VaultEntry]) -> None:
-            if result is not None:
-                result.order = entry.order
-                self.store.update(result)
-                self.refresh_list()
-
-        self.app.push_screen(EditEntryScreen(entry), callback)  # type: ignore[attr-defined]
+        self._open_editor(entry)
 
     def action_delete_entry(self) -> None:
         item = self._get_highlighted_item()
@@ -304,26 +306,21 @@ class VaultListScreen(Screen):
         if not isinstance(item, VaultItem) or item.entry_id is None:
             return
         entry = self.store.get(item.entry_id)
-
-        def callback(result: Optional[VaultEntry]) -> None:
-            if result is not None:
-                result.order = entry.order
-                self.store.update(result)
-                self.refresh_list()
-
-        self.app.push_screen(EditEntryScreen(entry), callback)  # type: ignore[attr-defined]
+        self._open_editor(entry)
 
 
 class TrackedInput(Input):
     """Input that reports focus to the edit screen."""
 
     def on_focus(self, event) -> None:
-        if isinstance(getattr(self, "screen", None), EditEntryScreen):
-            self.screen.set_last_focused(self)  # type: ignore[attr-defined]
+        screen = getattr(self, "screen", None)
+        if isinstance(screen, EditEntryScreen):
+            screen.set_last_focused(self)  # type: ignore[attr-defined]
 
     def on_blur(self, event) -> None:
-        if isinstance(getattr(self, "screen", None), EditEntryScreen):
-            self.screen.clear_highlight(getattr(self, "id", None))  # type: ignore[attr-defined]
+        screen = getattr(self, "screen", None)
+        if isinstance(screen, EditEntryScreen):
+            screen.clear_highlight()  # type: ignore[attr-defined]
 
 
 class PasswordInput(TrackedInput):
@@ -381,7 +378,7 @@ class EditEntryScreen(Screen):
     def on_mount(self) -> None:
         if self.name_input:
             self.name_input.focus()
-            self._highlight_focus(self.name_input.id)
+            self._set_copy_target(self.name_input.id)
 
     def _collect_entry(self) -> VaultEntry:
         name = self.name_input.value if self.name_input else ""
@@ -408,7 +405,7 @@ class EditEntryScreen(Screen):
             self.pass_input.value = generate_password()
             self.pass_input.password = False  # show once generated
             self.pass_input.focus()
-            self._highlight_focus(self.pass_input.id)
+            self._set_copy_target(self.pass_input.id)
 
     @on(Button.Pressed, "#copyfield")
     def copy_field(self) -> None:
@@ -430,12 +427,12 @@ class EditEntryScreen(Screen):
 
     def set_last_focused(self, inp: Input) -> None:
         self._last_focused_id = inp.id or self._last_focused_id
-        self._highlight_focus(inp.id)
+        self._set_copy_target(inp.id)
 
-    def clear_highlight(self, input_id: Optional[str]) -> None:
-        self._clear_highlight(input_id)
+    def clear_highlight(self) -> None:
+        self._set_copy_target(None)
 
-    def _highlight_focus(self, input_id: Optional[str]) -> None:
+    def _set_copy_target(self, input_id: Optional[str]) -> None:
         for field_id in ["name-input", "username-input", "password-input", "notes-input"]:
             try:
                 self.query_one(f"#{field_id}", Input).remove_class("copy-target")
@@ -446,14 +443,6 @@ class EditEntryScreen(Screen):
                 self.query_one(f"#{input_id}", Input).add_class("copy-target")
             except Exception:
                 pass
-
-    def _clear_highlight(self, input_id: Optional[str]) -> None:
-        if not input_id:
-            return
-        try:
-            self.query_one(f"#{input_id}", Input).remove_class("copy-target")
-        except Exception:
-            pass
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -529,10 +518,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-# --- helpers ---------------------------------------------------------------
-
-def generate_password(length: int = 20) -> str:
-    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$&*-_=+"
-    return "".join(secrets.choice(alphabet) for _ in range(length))
